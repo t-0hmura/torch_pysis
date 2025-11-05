@@ -198,7 +198,7 @@ class HessianOptimizer(Optimizer):
     def prev_eigvec_max(self):
         return self._prev_eigvec_max
 
-    @prev_eigvec_min.setter
+    @prev_eigvec_max.setter
     def prev_eigvec_max(self, prev_eigvec_max):
         if self.rfo_overlaps:
             self._prev_eigvec_max = prev_eigvec_max
