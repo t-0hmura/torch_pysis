@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.interpolate import splprep, splev
 
-from pysisyphus.constants import AU2KJPERMOL
+from pysisyphus.constants import AU2KCALPERMOL
 from pysisyphus.intcoords.exceptions import (
     DifferentCoordLengthsException,
     DifferentPrimitivesException,
@@ -492,8 +492,8 @@ class GrowingString(GrowingChainOfStates):
             size_str = " Full"
         size_info = f"String={size_str: >5s}"
         energies = np.array(self.all_energies[-1])
-        barrier = (energies.max() - energies[0]) * AU2KJPERMOL
-        barrier_info = f"(E_hei-E_0)={barrier:6.1f} kJ/mol"
+        barrier = (energies.max() - energies[0]) * AU2KCALPERMOL
+        barrier_info = f"(E_hei-E_0)={barrier:6.1f} kcal/mol"
         hei_ind = energies.argmax()
         hei_norm = np.linalg.norm(self.all_true_forces[-1][hei_ind])
         hei_info = f"norm(forces_true,hei)={hei_norm:.6f} E_h/a_0"
