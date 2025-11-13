@@ -72,45 +72,55 @@ class RFOptimizer(HessianOptimizer):
         self.successful_line_search = 0
 
     def optimize(self):
-        energy, gradient, H, big_eigvals, big_eigvecs, resetted = self.housekeeping()
-        step_func, pred_func = self.get_step_func(big_eigvals, gradient)
+        energy, gradient_full, H, big_eigvals, big_eigvecs, resetted = self.housekeeping()
+        gradient_act = self._to_active_vec(gradient_full)
+        step_func, pred_func = self.get_step_func(big_eigvals, gradient_act)
 
-        ref_gradient = gradient.copy() if isinstance(gradient, np.ndarray) else gradient.clone()
+        ref_gradient = (
+            gradient_act.copy()
+            if isinstance(gradient_act, np.ndarray)
+            else gradient_act.clone()
+        )
         # Reference step, used for judging the proposed GDIIS step
-        ref_step = step_func(big_eigvals, big_eigvecs, gradient) # heavy-compute
+        ref_step_act = step_func(big_eigvals, big_eigvecs, gradient_act)  # heavy-compute
+        ref_step_full = self._to_full_vec(ref_step_act)
 
         # Right everything is in place to check for convergence.  If all values are below
         # the thresholds, there is no need to do additional inter/extrapolations.
-        if self.check_convergence(ref_step)[0]:  # Drop conv_info
+        if self.check_convergence(ref_step_full)[0]:  # Drop conv_info
             self.log("Convergence achieved! Skipping inter/extrapolation.")
-            return ref_step
+            if isinstance(ref_step_full, torch.Tensor):
+                ref_step_full = ref_step_full.cpu().numpy()
+            return ref_step_full
 
         # Try to interpolate an intermediate geometry, either from GDIIS or line search.
         #
         # Set some defaults
-        ip_gradient = None
-        ip_step = None
+        ip_gradient_full = None
+        ip_step_full = None
         diis_result = None
 
         # Check if we can do GDIIS or GEDIIS. If we (can) do a line search is decided
         # after trying GDIIS.
-        rms_forces = rms(gradient)
-        rms_step = rms(ref_step)
+        rms_forces = rms(gradient_act)
+        rms_step = rms(ref_step_act)
         can_diis = (rms_step <= self.gdiis_thresh) and (not resetted)
         can_gediis = (rms_forces <= self.gediis_thresh) and (not resetted)
 
         # GDIIS / GEDIIS, prefer GDIIS over GEDIIS
         if self.gdiis and can_diis:
             # Gradients as error vectors
-            if isinstance(ref_step, torch.Tensor):
-                err_vecs = -torch.from_numpy(np.array(self.forces)).to(ref_step.dtype).to(ref_step.device)
+            if isinstance(ref_step_full, torch.Tensor):
+                err_vecs = -torch.from_numpy(np.array(self.forces)).to(
+                    ref_step_full.dtype
+                ).to(ref_step_full.device)
             else:
                 err_vecs = -np.array(self.forces)
             diis_result = gdiis(
                 err_vecs,
                 self.coords,
                 self.forces,
-                ref_step,
+                ref_step_full,
                 test_direction=self.gdiis_test_direction,
             )
             self.successful_gdiis += 1 if diis_result else 0
@@ -124,51 +134,62 @@ class RFOptimizer(HessianOptimizer):
         try:
             ip_coords = diis_result.coords
             if isinstance(ip_coords, torch.Tensor):
-                ip_step = ip_coords - torch.from_numpy(self.geometry.coords).to(ip_coords.device, ip_coords.dtype)
+                ip_step_full = ip_coords - torch.from_numpy(self.geometry.coords).to(
+                    ip_coords.device, ip_coords.dtype
+                )
             else:
-                ip_step = ip_coords - self.geometry.coords
-            ip_gradient = -diis_result.forces
+                ip_step_full = ip_coords - self.geometry.coords
+            ip_gradient_full = -diis_result.forces
         # When diis_result is None
         except AttributeError:
             self.log("GDIIS didn't succeed.")
 
         # Try line search if GDIIS failed or not requested
         if self.line_search and (diis_result is None) and (not resetted):
-            ip_energy, ip_gradient, ip_step = poly_line_search(
+            ip_energy, ip_gradient_full, ip_step_full = poly_line_search(
                 energy,
                 self.energies[-2],
-                gradient,
+                gradient_full,
                 -self.forces[-2],
                 self.steps[-1],
                 cubic_max_x=-1,
                 quartic_max_x=2,
                 logger=self.logger,
             )
-            self.successful_line_search += 1 if ip_gradient is not None else 0
+            self.successful_line_search += 1 if ip_gradient_full is not None else 0
 
         # Use the interpolated gradient for the RFO step if interpolation succeeded
-        if (ip_gradient is not None) and (ip_step is not None):
-            gradient = ip_gradient
-        # Keep the original gradient when the interpolation failed, but recreate
-        # ip_step, as it will be returned as None from poly_line_search().
+        if (ip_gradient_full is not None) and (ip_step_full is not None):
+            gradient_act = self._to_active_vec(ip_gradient_full)
         else:
-            if isinstance(gradient, torch.Tensor):
-                ip_step = torch.zeros_like(gradient, dtype=gradient.dtype, device=gradient.device)
+            if isinstance(gradient_full, torch.Tensor):
+                ip_step_full = torch.zeros_like(
+                    gradient_full, dtype=gradient_full.dtype, device=gradient_full.device
+                )
             else:
-                ip_step = np.zeros_like(gradient)
+                ip_step_full = np.zeros_like(gradient_full)
 
-        step = step_func(big_eigvals, big_eigvecs, gradient) # heavy-compute
-        # Form full step. If we did not interpolate or interpolation failed,
-        # ip_step will be zero.
-        step = step + ip_step
+        ip_step_act = self._to_active_vec(ip_step_full)
+
+        step_act = step_func(big_eigvals, big_eigvecs, gradient_act)  # heavy-compute
+        step_act_total = step_act + ip_step_act
+        step_full = self._to_full_vec(step_act_total)
+
+        # Preserve potential frozen-atom contributions from interpolation explicitly
+        if ip_step_full is not None:
+            full_ip_from_active = self._to_full_vec(ip_step_act)
+            if isinstance(step_full, torch.Tensor):
+                step_full = step_full + (ip_step_full - full_ip_from_active)
+            else:
+                step_full = step_full + (ip_step_full - full_ip_from_active)
 
         # Use the original, actually calculated, gradient
-        prediction = pred_func(ref_gradient, H, step)
+        prediction = pred_func(ref_gradient, H, step_act_total)
         self.predicted_energy_changes.append(prediction)
 
-        if isinstance(step, torch.Tensor):
-            step = step.cpu().numpy()
-        return step
+        if isinstance(step_full, torch.Tensor):
+            step_full = step_full.cpu().numpy()
+        return step_full
 
     def postprocess_opt(self):
         msg = (

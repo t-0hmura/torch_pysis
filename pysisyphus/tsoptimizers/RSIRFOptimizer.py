@@ -10,7 +10,8 @@ import torch
 
 class RSIRFOptimizer(TSHessianOptimizer):
     def optimize(self):
-        energy, gradient, H, eigvals, eigvecs, resetted = self.housekeeping()
+        energy, gradient_full, H, eigvals, eigvecs, resetted = self.housekeeping()
+        gradient_act = self._to_active_vec(gradient_full)
         self.update_ts_mode(eigvals, eigvecs)
 
         self.log(
@@ -19,14 +20,16 @@ class RSIRFOptimizer(TSHessianOptimizer):
         )
         # Projection matrix to construct g* and H*
         if isinstance(H, torch.Tensor):
-            P = torch.eye(self.geometry.coords.size, device=H.device, dtype=H.dtype)
+            dim = H.size(0)
+            P = torch.eye(dim, device=H.device, dtype=H.dtype)
             for root in self.roots:
                 trans_vec = eigvecs[:, root]
                 P -= 2 * torch.outer(trans_vec, trans_vec)
             H_star = P @ H
             eigvals_, eigvecs_ = torch.linalg.eigh(H_star)
         else:
-            P = np.eye(self.geometry.coords.size)
+            dim = H.shape[0]
+            P = np.eye(dim)
             for root in self.roots:
                 trans_vec = eigvecs[:, root]
                 P -= 2 * np.outer(trans_vec, trans_vec)
@@ -36,12 +39,15 @@ class RSIRFOptimizer(TSHessianOptimizer):
         eigvals_, eigvecs_ = self.filter_small_eigvals(eigvals_, eigvecs_)
 
         if isinstance(H, torch.Tensor):
-            grad_star = P @ gradient
+            grad_star = P @ gradient_act
         else:
-            grad_star = P.dot(gradient)
-        step = self.get_rs_step(eigvals_, eigvecs_, grad_star, name="RS-I-RFO")
+            grad_star = P.dot(gradient_act)
+        step_act = self.get_rs_step(eigvals_, eigvecs_, grad_star, name="RS-I-RFO")
 
-        self.predicted_energy_changes.append(self.rfo_model(gradient, self.H, step))
-        if isinstance(step, torch.Tensor):
-            step = step.cpu().numpy()
-        return step
+        self.predicted_energy_changes.append(
+            self.rfo_model(gradient_act, self.H, step_act)
+        )
+        step_full = self._to_full_vec(step_act)
+        if isinstance(step_full, torch.Tensor):
+            step_full = step_full.cpu().numpy()
+        return step_full

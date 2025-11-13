@@ -185,6 +185,22 @@ class HessianOptimizer(Optimizer):
         self._prev_eigvec_min = None
         self._prev_eigvec_max = None
 
+        # Active degrees of freedom handling (freeze atoms)
+        self._full_dim = self.geometry.coords.size
+        try:
+            self._act_dofs = self.geometry.active_dof_indices
+        except AttributeError:
+            self._act_dofs = np.arange(self._full_dim, dtype=int)
+        cart_dim = getattr(self.geometry, "cart_coords", self.geometry.coords).size
+        freeze_atoms = getattr(self.geometry, "freeze_atoms", np.array([], dtype=int))
+        # Only use active dofs when we are effectively working in Cartesian space
+        self._use_active_dofs = (
+            cart_dim == self._full_dim and getattr(freeze_atoms, "size", 0) > 0
+        )
+        if not self._use_active_dofs:
+            self._act_dofs = np.arange(self._full_dim, dtype=int)
+        self._act_dof_tensors = dict()
+
     @property
     def prev_eigvec_min(self):
         return self._prev_eigvec_min
@@ -202,6 +218,50 @@ class HessianOptimizer(Optimizer):
     def prev_eigvec_max(self, prev_eigvec_max):
         if self.rfo_overlaps:
             self._prev_eigvec_max = prev_eigvec_max
+
+    def _using_active_dofs(self):
+        return self._use_active_dofs
+
+    def _get_active_index_tensor(self, device):
+        if not self._using_active_dofs():
+            raise RuntimeError("Active DOF indexing requested but disabled.")
+        if isinstance(device, str):
+            device = torch.device(device)
+        key = (device.type, device.index)
+        tensor = self._act_dof_tensors.get(key)
+        if tensor is None:
+            tensor = torch.tensor(self._act_dofs, dtype=torch.long, device=device)
+            self._act_dof_tensors[key] = tensor
+        return tensor
+
+    def _to_active_vec(self, vec):
+        if (vec is None) or (not self._using_active_dofs()):
+            return vec
+        if isinstance(vec, torch.Tensor):
+            inds = self._get_active_index_tensor(vec.device)
+            return vec.index_select(0, inds)
+        return vec[self._act_dofs]
+
+    def _to_full_vec(self, active_vec):
+        if (active_vec is None) or (not self._using_active_dofs()):
+            return active_vec
+        if isinstance(active_vec, torch.Tensor):
+            device = active_vec.device
+            full = torch.zeros(self._full_dim, device=device, dtype=active_vec.dtype)
+            inds = self._get_active_index_tensor(device)
+            full.index_copy_(0, inds, active_vec)
+            return full
+        full = np.zeros(self._full_dim, dtype=active_vec.dtype)
+        full[self._act_dofs] = active_vec
+        return full
+
+    def _to_active_hessian(self, hessian):
+        if (hessian is None) or (not self._using_active_dofs()):
+            return hessian
+        if isinstance(hessian, torch.Tensor):
+            inds = self._get_active_index_tensor(hessian.device)
+            return hessian.index_select(0, inds).index_select(1, inds)
+        return hessian[np.ix_(self._act_dofs, self._act_dofs)]
 
     def reset(self):
         # Don't recalculate the hessian if we have to reset the optimizer
@@ -257,6 +317,8 @@ class HessianOptimizer(Optimizer):
         ):
             U = self.geometry.internal.U
             self.H = U.T.dot(self.H).dot(U)
+
+        self.H = self._to_active_hessian(self.H)
 
         if self.hessian_recalc_adapt:
             self.adapt_norm = np.linalg.norm(self.geometry.forces)
@@ -367,11 +429,11 @@ class HessianOptimizer(Optimizer):
             # Use xtb hessian
             self.log("Requested Hessian recalculation.")
             if self.hessian_xtb:
-                self.H = xtb_hessian(self.geometry)
+                self.H = self._to_active_hessian(xtb_hessian(self.geometry))
                 key = "xtb"
             # Calculated hessian at actual level of theory
             else:
-                self.H = self.geometry.hessian
+                self.H = self._to_active_hessian(self.geometry.hessian)
                 key = "exact"
                 # self.save_hessian()
             if not (self.cur_cycle == 0):
@@ -381,8 +443,8 @@ class HessianOptimizer(Optimizer):
             self.hessian_recalc_in = self.hessian_recalc
         # Simple hessian update
         else:
-            dx = self.steps[-1]
-            dg = -(self.forces[-1] - self.forces[-2])
+            dx = self._to_active_vec(self.steps[-1])
+            dg = self._to_active_vec(-(self.forces[-1] - self.forces[-2]))
             curv_cond = dx.dot(dg)
             if curv_cond < 0.0:
                 self.log(
