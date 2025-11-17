@@ -92,6 +92,7 @@ def run_opt(
     title="Optimization",
     copy_final_geom=None,
     level=0,
+    save_hessian=False,
 ):
     is_cos = issubclass(type(geom), ChainOfStates)
     is_tsopt = key_is_tsopt(opt_key)
@@ -220,6 +221,7 @@ def run_opt(
         out_dir = opt_kwargs.get("out_dir", None)
         do_final_hessian(
             geom,
+            save_hessian=save_hessian,
             write_imag_modes=True,
             prefix=prefix,
             T=T,
