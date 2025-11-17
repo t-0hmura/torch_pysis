@@ -1,9 +1,11 @@
 import yaml
 from pprint import pprint
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+import pysisyphus.run as run_module
 from pysisyphus.cos.ChainOfStates import ChainOfStates
 from pysisyphus.Geometry import Geometry
 from pysisyphus.helpers import geom_loader
@@ -63,6 +65,39 @@ def test_diels_alder_growing_string():
     assert results.irc.backward_is_converged
     assert len(results.end_geoms) == 3
     assert results.calc_getter
+
+
+@pytest.mark.parametrize("save_flag", [None, False])
+def test_calc_section_save_hessian_flag(monkeypatch, save_flag):
+    recorded = dict()
+
+    def fake_run_opt(geom, calc_getter, opt_key, opt_kwargs=None, **kwargs):
+        recorded["flag"] = kwargs["save_hessian"]
+        fake_opt = SimpleNamespace(is_converged=True, final_fn="opt.xyz", stopped=False)
+        return SimpleNamespace(opt=fake_opt, geom=geom, fn="opt.xyz")
+
+    monkeypatch.setattr(run_module, "run_opt", fake_run_opt)
+
+    calc_section = {"type": "dummy"}
+    if save_flag is not None:
+        calc_section["save_hessian"] = save_flag
+
+    run_dict = {
+        "geom": {
+            "type": "cart",
+            "fn": "lib:h2o.xyz",
+        },
+        "calc": calc_section,
+        "opt": {
+            "type": "rfo",
+            "do_hess": True,
+        },
+    }
+
+    run_module.run_from_dict(run_dict)
+
+    expected = True if save_flag is None else save_flag
+    assert recorded["flag"] is expected
 
 
 @using("pyscf")

@@ -26,18 +26,18 @@ def save_hessian(h5_fn, geom, cart_hessian=None, energy=None, mult=None):
     atoms = geom.atoms
     coords3d = geom.coords3d
 
-    # with h5py.File(h5_fn, "w") as handle:
-    #     handle.create_dataset("hessian", data=cart_hessian)
-    #     handle.create_dataset("vibfreqs", data=vibfreqs)
-    #     handle.create_dataset("masses", data=masses)
-    #     handle.create_dataset("coords3d", data=coords3d)
+    with h5py.File(h5_fn, "w") as handle:
+        handle.create_dataset("hessian", data=cart_hessian)
+        handle.create_dataset("vibfreqs", data=vibfreqs)
+        handle.create_dataset("masses", data=masses)
+        handle.create_dataset("coords3d", data=coords3d)
 
-    #     try:
-    #         handle.attrs["atoms"] = [atom.lower() for atom in atoms]
-    #     except OSError:
-    #         handle.create_dataset("atoms", data=[atom.lower() for atom in atoms])
-    #     handle.attrs["energy"] = energy
-    #     handle.attrs["mult"] = mult
+        try:
+            handle.attrs["atoms"] = [atom.lower() for atom in atoms]
+        except OSError:
+            handle.create_dataset("atoms", data=[atom.lower() for atom in atoms])
+        handle.attrs["energy"] = energy
+        handle.attrs["mult"] = mult
 
 
 def save_third_deriv(h5_fn, geom, third_deriv_result, H_mw, H_proj):

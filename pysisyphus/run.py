@@ -243,6 +243,7 @@ def run_tsopt_from_cos(
     calc_getter=None,
     ovlp_thresh=0.4,
     coordinate_union="bonds",
+    save_hessian=True,
 ):
     print(highlight_text(f"Running TS-optimization from COS"))
 
@@ -488,6 +489,7 @@ def run_tsopt_from_cos(
         cart_hessian=cart_hessian,
         title="TS-Optimization",
         copy_final_geom="ts_opt.xyz",
+        save_hessian=save_hessian,
     )
     ts_geom = opt_result.geom
     ts_opt = opt_result.opt
@@ -866,7 +868,7 @@ def do_rmsds(xyz, geoms, end_fns, end_geoms, preopt_map=None, similar_thresh=0.2
     print()
 
 
-def run_endopt(irc, endopt_key, endopt_kwargs, calc_getter):
+def run_endopt(irc, endopt_key, endopt_kwargs, calc_getter, save_hessian=True):
     print(highlight_text(f"Optimizing reaction path ends"))
 
     # Gather geometries that shall be optimized and appropriate keys.
@@ -980,6 +982,7 @@ def run_endopt(irc, endopt_key, endopt_kwargs, calc_getter):
                 opt_kwargs,
                 title=f"{name} Optimization",
                 level=1,
+                save_hessian=save_hessian,
             )
         except Exception as err:
             print(f"{err}\nOptimization crashed!")
@@ -1373,6 +1376,7 @@ def main(run_dict, restart=False, yaml_dir="./", scheduler=None):
     calc_key = run_dict["calc"].pop("type")
     calc_kwargs = run_dict["calc"]
     calc_run_func = calc_kwargs.pop("run_func", None)
+    calc_save_hessian = calc_kwargs.pop("save_hessian", True)
     calc_kwargs["out_dir"] = calc_kwargs.get("out_dir", yaml_dir / OUT_DIR_DEFAULT)
     calc_base_name = calc_kwargs.get("base_name", "calculator")
     if calc_key in ("oniom", "ext"):
@@ -1515,7 +1519,12 @@ def main(run_dict, restart=False, yaml_dir="./", scheduler=None):
                 geom.coords = shaked_coords
                 print(f"Shaken coordinates:\n{geom.as_xyz()}")
             opt_result = run_opt(
-                geom, calc_getter, opt_key, opt_kwargs, print_thermo=True
+                geom,
+                calc_getter,
+                opt_key,
+                opt_kwargs,
+                print_thermo=True,
+                save_hessian=calc_save_hessian,
             )
             opt_geom = opt_result.geom
             opt = opt_result.opt
@@ -1542,7 +1551,11 @@ def main(run_dict, restart=False, yaml_dir="./", scheduler=None):
                 if isinstance(geom, ChainOfStates.ChainOfStates):
                     ts_calc_getter = get_calc_closure(tsopt_key, calc_key, calc_kwargs)
                     ts_opt_result = run_tsopt_from_cos(
-                        geom, tsopt_key, tsopt_kwargs, ts_calc_getter
+                        geom,
+                        tsopt_key,
+                        tsopt_kwargs,
+                        ts_calc_getter,
+                        save_hessian=calc_save_hessian,
                     )
                 else:
                     ts_opt_result = run_opt(
@@ -1552,6 +1565,7 @@ def main(run_dict, restart=False, yaml_dir="./", scheduler=None):
                         tsopt_kwargs,
                         title="TS-Optimization",
                         copy_final_geom="ts_opt.xyz",
+                        save_hessian=calc_save_hessian,
                     )
                 ts_geom = ts_opt_result.geom
                 ts_opt = ts_opt_result.opt
@@ -1605,7 +1619,13 @@ def main(run_dict, restart=False, yaml_dir="./", scheduler=None):
             T = run_dict["endopt"]["T"]
             p = run_dict["endopt"]["p"]
             # Order is forward, backward, downhill
-            endopt_results = run_endopt(irc, endopt_key, endopt_kwargs, calc_getter)
+            endopt_results = run_endopt(
+                irc,
+                endopt_key,
+                endopt_kwargs,
+                calc_getter,
+                save_hessian=calc_save_hessian,
+            )
 
             # Determine "left" and "right" geoms
             # Only downhill

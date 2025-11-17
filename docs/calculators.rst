@@ -59,6 +59,12 @@ An example input highlighting the most important keywords is shown below.
     opt:
      [... omitted ...]
 
+Setting ``save_hessian: False`` inside the ``calc:`` section disables writing the
+``final_hessian.h5`` files after optimizations where ``do_hess`` is requested.
+This can help to reduce I/O overhead when Hessians are not required for later
+thermochemical analyses. The default is ``True`` to keep the previous behavior of
+persisting final Hessians.
+
 
 Calculator base classes
 =======================
