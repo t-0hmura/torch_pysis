@@ -32,7 +32,7 @@ from pysisyphus.io import (
     geom_from_mol2,
     geom_from_pdb,
     geom_from_qcschema,
-    # save_hessian as save_h5_hessian,
+    save_hessian as save_h5_hessian,
     geom_from_zmat_fn,
     geoms_from_inline_xyz,
     geom_from_pubchem_name,
@@ -519,11 +519,11 @@ def do_final_hessian(
     if prefix:
         prefix = f"{prefix}_"
 
-    # # Dump HDF Hessian
-    # if save_hessian:
-    #     final_h5_hessian_fn = prefix + "final_hessian.h5"
-    #     save_h5_hessian(out_dir / final_h5_hessian_fn, geom)
-    #     print(f"Wrote Hessian data HD5 file '{final_h5_hessian_fn}'.")
+    # Dump HDF Hessian
+    if save_hessian:
+        final_h5_hessian_fn = prefix + "final_hessian.h5"
+        save_h5_hessian(out_dir / final_h5_hessian_fn, geom)
+        print(f"Wrote Hessian data HD5 file '{final_h5_hessian_fn}'.")
 
     imag_fns = list()
     if write_imag_modes:
