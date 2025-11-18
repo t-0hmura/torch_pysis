@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 
 
 from pysisyphus import logger
@@ -16,7 +17,10 @@ LIB_DIR = Path(CONFIG_DIR / "geom_library")
 WF_LIB_DIR = Path(CONFIG_DIR / "wf_library")
 T_DEFAULT = 298.15  # Kelvin
 p_DEFAULT = 101325  # Pascal
-OUT_DIR_DEFAULT = "qm_calcs"
+# Use a temporary directory by default for all quantum chemistry calculations so
+# that intermediate files don't clutter the working directory when users don't
+# provide an explicit ``out_dir``.
+OUT_DIR_DEFAULT = str(Path(tempfile.gettempdir()) / "qm_calcs")
 BEND_MIN_DEG = 15
 LB_MIN_DEG = 175
 DIHED_MAX_DEG = 175
