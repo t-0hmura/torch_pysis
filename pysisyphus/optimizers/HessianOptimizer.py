@@ -184,6 +184,48 @@ class HessianOptimizer(Optimizer):
 
         self._prev_eigvec_min = None
         self._prev_eigvec_max = None
+        self._using_active_dofs = False
+        self._active_dof_indices = None
+        self.cur_H = None
+
+    @property
+    def using_active_dofs(self):
+        return self._using_active_dofs
+
+    @property
+    def active_dof_indices(self):
+        return self._active_dof_indices
+
+    def _set_active_dofs(self, use_active):
+        self._using_active_dofs = use_active
+        self._active_dof_indices = (
+            self.geometry.active_dof_indices if use_active else None
+        )
+
+    def active_from_full(self, vec):
+        if not self.using_active_dofs:
+            return vec
+        return self.geometry.active_from_full(vec)
+
+    def full_from_active(self, vec):
+        if not self.using_active_dofs:
+            return vec
+        return self.geometry.full_from_active(vec)
+
+    def active_hessian(self, hessian):
+        if not self.using_active_dofs:
+            return hessian
+
+        inds = self.active_dof_indices
+        if isinstance(hessian, torch.Tensor):
+            idx = torch.as_tensor(inds, device=hessian.device, dtype=torch.int64)
+            return hessian.index_select(0, idx).index_select(1, idx)
+        return hessian[np.ix_(inds, inds)]
+
+    def active_list(self, seq):
+        if not self.using_active_dofs:
+            return seq
+        return [self.active_from_full(item) for item in seq]
 
     @property
     def prev_eigvec_min(self):
@@ -499,20 +541,26 @@ class HessianOptimizer(Optimizer):
     def housekeeping(self):
         """Calculate gradient and energy. Update trust radius and hessian
         if needed. Return energy, gradient and hessian for the current cycle."""
-        gradient = self.geometry.gradient
+        gradient_full = self.geometry.gradient
         energy = self.geometry.energy
         self.energies.append(energy)
         self.log(f"    Energy: {energy: >12.6f} au")
-        self.log(f"norm(grad): {np.linalg.norm(gradient): >12.6f} au / bohr (rad)")
-        self.log(f" rms(grad): {np.sqrt(np.mean(gradient**2)): >12.6f} au / bohr (rad)")
-        self.forces.append(-gradient)
+        self.log(
+            f"norm(grad): {np.linalg.norm(gradient_full): >12.6f} au / bohr (rad)"
+        )
+        self.log(
+            f" rms(grad): {np.sqrt(np.mean(gradient_full**2)): >12.6f} au / bohr (rad)"
+        )
+        self.forces.append(-gradient_full)
         if isinstance(self.H, torch.Tensor):
-            gradient = torch.from_numpy(gradient).to(self.H.device, self.H.dtype)
+            gradient_full = torch.from_numpy(gradient_full).to(
+                self.H.device, self.H.dtype
+            )
 
         can_update = (
             # Allows gradient differences
             len(self.forces) > 1
-            and (self.forces[-2].shape == gradient.shape)
+            and (self.forces[-2].shape == gradient_full.shape)
             and len(self.coords) > 1
             # Coordinates may have been rebuilt. Take care of that.
             and (self.coords[-2].shape == self.coords[1].shape)
@@ -531,6 +579,16 @@ class HessianOptimizer(Optimizer):
             # Symmetrize hessian, as the projection may break it?!
             H = (H_proj + H_proj.T) / 2
 
+        use_active = (
+            len(self.geometry.freeze_atoms) > 0
+            and self.geometry.coord_type in ("cart", "cartesian", "mwcartesian")
+            and H.shape[0] == self.geometry.cart_coords.size
+        )
+        self._set_active_dofs(use_active)
+
+        H = self.active_hessian(H)
+        gradient = self.active_from_full(gradient_full)
+
         if isinstance(H, torch.Tensor):
             eigvals, eigvecs = torch.linalg.eigh(H)
         else:
@@ -539,6 +597,7 @@ class HessianOptimizer(Optimizer):
         eigvals, eigvecs = self.filter_small_eigvals(eigvals, eigvecs)
 
         resetted = not can_update
+        self.cur_H = H
         return energy, gradient, H, eigvals, eigvecs, resetted
 
     def get_augmented_hessian(self, eigvals, gradient, alpha=1.0):
