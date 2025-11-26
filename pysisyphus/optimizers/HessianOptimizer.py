@@ -638,6 +638,10 @@ class HessianOptimizer(Optimizer):
     def get_rs_step(self, eigvals, eigvecs, gradient, name="RS"):
         # Transform gradient to basis of eigenvectors
         if isinstance(eigvecs, torch.Tensor):
+            if not isinstance(gradient, torch.Tensor):
+                gradient = torch.as_tensor(
+                    gradient, device=eigvecs.device, dtype=eigvecs.dtype
+                )
             gradient_ = eigvecs.T @ gradient
         else:
             gradient_ = eigvecs.T.dot(gradient)
