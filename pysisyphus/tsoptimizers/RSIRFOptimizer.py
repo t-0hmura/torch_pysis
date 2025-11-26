@@ -19,14 +19,14 @@ class RSIRFOptimizer(TSHessianOptimizer):
         )
         # Projection matrix to construct g* and H*
         if isinstance(H, torch.Tensor):
-            P = torch.eye(self.geometry.coords.size, device=H.device, dtype=H.dtype)
+            P = torch.eye(gradient.size(0), device=H.device, dtype=H.dtype)
             for root in self.roots:
                 trans_vec = eigvecs[:, root]
                 P -= 2 * torch.outer(trans_vec, trans_vec)
             H_star = P @ H
             eigvals_, eigvecs_ = torch.linalg.eigh(H_star)
         else:
-            P = np.eye(self.geometry.coords.size)
+            P = np.eye(gradient.size)
             for root in self.roots:
                 trans_vec = eigvecs[:, root]
                 P -= 2 * np.outer(trans_vec, trans_vec)
@@ -41,7 +41,9 @@ class RSIRFOptimizer(TSHessianOptimizer):
             grad_star = P.dot(gradient)
         step = self.get_rs_step(eigvals_, eigvecs_, grad_star, name="RS-I-RFO")
 
-        self.predicted_energy_changes.append(self.rfo_model(gradient, self.H, step))
+        self.predicted_energy_changes.append(self.rfo_model(gradient, self.cur_H, step))
+
+        step = self.full_from_active(step)
         if isinstance(step, torch.Tensor):
             step = step.cpu().numpy()
         return step

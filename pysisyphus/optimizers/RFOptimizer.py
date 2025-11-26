@@ -75,6 +75,10 @@ class RFOptimizer(HessianOptimizer):
         energy, gradient, H, big_eigvals, big_eigvecs, resetted = self.housekeeping()
         step_func, pred_func = self.get_step_func(big_eigvals, gradient)
 
+        forces_act = self.active_list(self.forces)
+        coords_act = self.active_list(self.coords)
+        steps_act = self.active_list(self.steps)
+
         ref_gradient = gradient.copy() if isinstance(gradient, np.ndarray) else gradient.clone()
         # Reference step, used for judging the proposed GDIIS step
         ref_step = step_func(big_eigvals, big_eigvecs, gradient) # heavy-compute
@@ -103,13 +107,13 @@ class RFOptimizer(HessianOptimizer):
         if self.gdiis and can_diis:
             # Gradients as error vectors
             if isinstance(ref_step, torch.Tensor):
-                err_vecs = -torch.from_numpy(np.array(self.forces)).to(ref_step.dtype).to(ref_step.device)
+                err_vecs = -torch.from_numpy(np.array(forces_act)).to(ref_step.dtype).to(ref_step.device)
             else:
-                err_vecs = -np.array(self.forces)
+                err_vecs = -np.array(forces_act)
             diis_result = gdiis(
                 err_vecs,
-                self.coords,
-                self.forces,
+                coords_act,
+                forces_act,
                 ref_step,
                 test_direction=self.gdiis_test_direction,
             )
@@ -118,7 +122,7 @@ class RFOptimizer(HessianOptimizer):
         # comment the line below and uncomment the line following it.
         elif self.gediis and can_gediis:
             # if self.gediis and can_gediis and (diis_result == None):
-            diis_result = gediis(self.coords, self.energies, self.forces, hessian=H)
+            diis_result = gediis(coords_act, self.energies, forces_act, hessian=H)
             self.successful_gediis += 1 if diis_result else 0
 
         try:
@@ -138,8 +142,8 @@ class RFOptimizer(HessianOptimizer):
                 energy,
                 self.energies[-2],
                 gradient,
-                -self.forces[-2],
-                self.steps[-1],
+                -forces_act[-2],
+                steps_act[-1],
                 cubic_max_x=-1,
                 quartic_max_x=2,
                 logger=self.logger,
@@ -168,6 +172,7 @@ class RFOptimizer(HessianOptimizer):
         prediction = pred_func(ref_gradient, H, step)
         self.predicted_energy_changes.append(prediction)
 
+        step = self.full_from_active(step)
         if isinstance(step, torch.Tensor):
             step = step.cpu().numpy()
         return step

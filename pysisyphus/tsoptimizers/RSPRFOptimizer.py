@@ -160,7 +160,8 @@ class RSPRFOptimizer(TSHessianOptimizer):
         # predicted_energy_change = 1/2 * (eigval_max / nu_max**2 + eigval_min / nu_min**2)
         # self.predicted_energy_changes.append(predicted_energy_change)
 
-        self.predicted_energy_changes.append(self.rfo_model(gradient, self.H, step))
+        self.predicted_energy_changes.append(self.rfo_model(gradient, self.cur_H, step))
 
         self.log("")
+        step = self.full_from_active(step)
         return step
