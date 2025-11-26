@@ -698,14 +698,24 @@ class HessianOptimizer(Optimizer):
         def finalize_step(shift):
             step = get_step(shift)
             if transform:
-                step = eigvecs.dot(step)
+                if isinstance(eigvecs, torch.Tensor):
+                    step = torch.tensor(step, device=eigvecs.device, dtype=eigvecs.dtype)
+                    return (eigvecs @ step).cpu().numpy()
+                else:
+                    return eigvecs.dot(step)
             return step
 
         # Simplest case. Positive definite Hessian and predicted step is
         # already in trust radius.
         if pos_definite and newton_norm <= self.trust_radius:
             self.log("Using unshifted Newton step.")
-            return eigvecs.dot(newton_step_trans)
+            if isinstance(eigvecs, torch.Tensor):
+                newton_step_trans = torch.tensor(
+                    newton_step_trans, device=eigvecs.device, dtype=eigvecs.dtype
+                )
+                return (eigvecs @ newton_step_trans).cpu().numpy()
+            else:
+                return eigvecs.dot(newton_step_trans)
 
         # If the Hessian is not positive definite or if the step is too
         # long we have to determine the shift parameter lambda.
@@ -763,7 +773,11 @@ class HessianOptimizer(Optimizer):
         if not transform:
             return step_trans
 
-        return eigvecs.dot(step_trans)
+        if isinstance(eigvecs, torch.Tensor):
+            step_trans = torch.tensor(step_trans, device=eigvecs.device, dtype=eigvecs.dtype)
+            return (eigvecs @ step_trans).cpu().numpy()
+        else:
+            return eigvecs.dot(step_trans)
 
     @staticmethod
     def quadratic_model(gradient, hessian, step):
