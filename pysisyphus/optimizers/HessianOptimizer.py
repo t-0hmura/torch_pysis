@@ -735,6 +735,12 @@ class HessianOptimizer(Optimizer):
         min_eigval = eigvals[min_ind]
         pos_definite = bool((eigvals > 0.0).all())
         if isinstance(eigvecs, torch.Tensor):
+            if not isinstance(gradient, torch.Tensor):
+                gradient = torch.tensor(
+                    gradient, device=eigvecs.device, dtype=eigvecs.dtype
+                )
+            else:
+                gradient = gradient.to(device=eigvecs.device, dtype=eigvecs.dtype)
             gradient_trans = eigvecs.T @ gradient
             gradient_trans = gradient_trans.cpu().numpy()
         else:
