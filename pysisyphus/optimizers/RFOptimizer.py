@@ -160,6 +160,8 @@ class RFOptimizer(HessianOptimizer):
         step = step_func(big_eigvals, big_eigvecs, gradient) # heavy-compute
         # Form full step. If we did not interpolate or interpolation failed,
         # ip_step will be zero.
+        if isinstance(ip_step, torch.Tensor):
+            ip_step = ip_step.cpu().numpy()
         step = step + ip_step
 
         # Use the original, actually calculated, gradient
