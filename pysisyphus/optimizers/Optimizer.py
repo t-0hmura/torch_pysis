@@ -591,9 +591,15 @@ class Optimizer(metaclass=abc.ABCMeta):
         if self.thresh == "baker":
             energy_converged = False
             if self.cur_cycle > 0:
-                cur_energy = self.energies[-1]
-                prev_energy = self.energies[-2]
-                energy_converged = abs(cur_energy - prev_energy) < 1e-6
+                cur_energy = np.asarray(self.energies[-1])
+                prev_energy = np.asarray(self.energies[-2])
+                if cur_energy.shape != prev_energy.shape:
+                    self.log(
+                        "Skipping energy convergence check due to differing image counts."
+                    )
+                    energy_converged = False
+                else:
+                    energy_converged = np.all(np.abs(cur_energy - prev_energy) < 1e-6)
             converged = (max_force < 3e-4) and (energy_converged or (max_step < 3e-4))
         return (
             any((converged_to_geom, converged, overachieved, geom_converged))
