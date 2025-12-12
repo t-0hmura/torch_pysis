@@ -852,8 +852,13 @@ class HessianOptimizer(Optimizer):
     def quadratic_model(gradient, hessian, step):
         if isinstance(gradient, torch.Tensor):
             step = torch.tensor(step, device=gradient.device, dtype=gradient.dtype)
+            # Ensure a one-dimensional step to avoid unintended matrix
+            # multiplication when the input has an extra dimension (e.g. after
+            # stacking multiple steps).
+            step = step.reshape(-1)
             return (step @ gradient + 0.5 * step @ hessian @ step).cpu().numpy()
         else:
+            step = np.asarray(step).ravel()
             return step.dot(gradient) + 0.5 * step.dot(hessian).dot(step)
 
     @staticmethod
