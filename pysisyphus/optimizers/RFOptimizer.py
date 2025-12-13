@@ -128,9 +128,9 @@ class RFOptimizer(HessianOptimizer):
         try:
             ip_coords = diis_result.coords
             if isinstance(ip_coords, torch.Tensor):
-                ip_step = ip_coords - torch.from_numpy(coords_act).to(ip_coords.device, ip_coords.dtype)
+                ip_step = ip_coords - torch.from_numpy(coords_act[-1]).to(ip_coords.device, ip_coords.dtype)
             else:
-                ip_step = ip_coords - coords_act
+                ip_step = ip_coords - coords_act[-1]
             ip_gradient = -diis_result.forces
         # When diis_result is None
         except AttributeError:
