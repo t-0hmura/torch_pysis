@@ -166,7 +166,7 @@ cur_out
 *.chkfile
 pysisyphus/wavefunction/devel_ints/*
 
-version.py
+# version.py
 
 !tests/test_barriers/*.h5
 !tests/test_franckcondon/*.h5
