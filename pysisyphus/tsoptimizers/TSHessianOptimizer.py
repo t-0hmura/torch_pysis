@@ -346,22 +346,10 @@ class TSHessianOptimizer(HessianOptimizer):
         # Select new TS mode according to biggest overlap with previous TS mode.
         self.log(f"Overlaps of previous TS mode with current {infix}mode(s):")
         if isinstance(eigvecs, torch.Tensor):
-            ts_modes = self.ts_modes
-            if not isinstance(ts_modes, torch.Tensor):
-                ts_modes = torch.as_tensor(ts_modes, device=eigvecs.device, dtype=eigvecs.dtype)
-            if self.using_active_dofs:
-                ts_modes = torch.stack([
-                    self.active_from_full(mode) for mode in ts_modes
-                ])
-            ovlps = torch.abs(torch.einsum("ij,ki->kj", ovlp_eigvecs, ts_modes))
+            ovlps = torch.abs(torch.einsum("ij,ki->kj", ovlp_eigvecs, self.ts_modes))
             ovlps = ovlps.cpu().numpy()
         else:
-            ts_modes = self.ts_modes
-            if self.using_active_dofs:
-                ts_modes = np.stack([
-                    self.active_from_full(mode) for mode in ts_modes
-                ])
-            ovlps = np.abs(np.einsum("ij,ki->kj", ovlp_eigvecs, ts_modes))
+            ovlps = np.abs(np.einsum("ij,ki->kj", ovlp_eigvecs, self.ts_modes))
         for i, ovlp in enumerate(ovlps):
             self.log(f"\tTS mode {i:02d}: {array2string(ovlp, precision=3)}")
         max_ovlp_inds = np.argmax(ovlps, axis=1)
