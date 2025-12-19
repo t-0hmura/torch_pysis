@@ -343,6 +343,21 @@ class TSHessianOptimizer(HessianOptimizer):
             infix = ""
             ovlp_eigvecs = eigvecs
 
+        if (
+            self.using_active_dofs
+            and self.ts_modes is not None
+            and self.ts_modes.shape[1] != ovlp_eigvecs.shape[0]
+        ):
+            self.log("Projecting previous TS mode(s) onto active DOFs.")
+            if isinstance(self.ts_modes, torch.Tensor):
+                self.ts_modes = torch.stack(
+                    [self.active_from_full(mode) for mode in self.ts_modes]
+                )
+            else:
+                self.ts_modes = np.stack(
+                    [self.active_from_full(mode) for mode in self.ts_modes]
+                )
+
         # Select new TS mode according to biggest overlap with previous TS mode.
         self.log(f"Overlaps of previous TS mode with current {infix}mode(s):")
         if isinstance(eigvecs, torch.Tensor):
