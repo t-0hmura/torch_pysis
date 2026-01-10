@@ -1,4 +1,0 @@
-[run]
-omit =
-    pysisyphus/deprecated/*
-    _version.py
