@@ -4,6 +4,7 @@
 #     Baker, 1996
 
 import numpy as np
+import torch
 
 from pysisyphus.intcoords import RedundantCoords
 from pysisyphus.linalg import gram_schmidt
@@ -68,6 +69,15 @@ class DLC(RedundantCoords):
     def transform_hessian(self, cart_hessian, int_gradient=None):
         """Transform Cartesian Hessian to DLC."""
         # Transform the DLC gradient to primitive coordinates
+        if isinstance(cart_hessian, torch.Tensor):
+            U = self._as_torch_like(self.U, cart_hessian)
+            if int_gradient is not None:
+                int_gradient = self._as_torch_like(int_gradient, cart_hessian)
+                prim_gradient = (U * int_gradient).sum(dim=1)
+            else:
+                prim_gradient = None
+            H = super().transform_hessian(cart_hessian, prim_gradient)
+            return U.T @ H @ U
         if int_gradient is not None:
             prim_gradient = (self.U * int_gradient).sum(axis=1)
         else:

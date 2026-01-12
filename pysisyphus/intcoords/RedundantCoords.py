@@ -10,6 +10,7 @@ import math
 from operator import itemgetter
 
 import numpy as np
+import torch
 
 from pysisyphus.config import (
     BEND_MIN_DEG,
@@ -454,6 +455,10 @@ class RedundantCoords:
 
     def transform_forces(self, cart_forces):
         """Combination of Eq. (9) and (11) in [1]."""
+        if isinstance(cart_forces, torch.Tensor):
+            P = self._as_torch_like(self.P, cart_forces)
+            Bt_inv = self._as_torch_like(self.Bt_inv, cart_forces)
+            return P @ (Bt_inv @ cart_forces)
         return self.P.dot(self.Bt_inv.dot(cart_forces))
 
     def get_K_matrix(self, int_gradient=None):
@@ -467,6 +472,8 @@ class RedundantCoords:
         K_flat = np.zeros(size_ * size_)
         coords3d = self.coords3d
         for primitive, int_grad_item in zip(self.primitives, int_gradient):
+            if hasattr(int_grad_item, "item"):
+                int_grad_item = float(int_grad_item.item())
             # Contract with gradient
             try:
                 dg = int_grad_item * primitive.jacobian(coords3d)
@@ -497,6 +504,11 @@ class RedundantCoords:
         K = K_flat.reshape(size_, size_)
         return K
 
+    def _as_torch_like(self, array, like):
+        if isinstance(array, torch.Tensor):
+            return array.to(dtype=like.dtype, device=like.device)
+        return torch.tensor(array, dtype=like.dtype, device=like.device)
+
     def log_int_grad_msg(self, int_gradient):
         if int_gradient is None:
             self.log(
@@ -509,17 +521,30 @@ class RedundantCoords:
         """Transform Cartesian Hessian to internal coordinates."""
         self.log_int_grad_msg(int_gradient)
         K = self.get_K_matrix(int_gradient)
+        if isinstance(cart_hessian, torch.Tensor):
+            K = self._as_torch_like(K, cart_hessian)
+            Bt_inv_prim = self._as_torch_like(self.Bt_inv_prim, cart_hessian)
+            B_inv_prim = self._as_torch_like(self.B_inv_prim, cart_hessian)
+            return Bt_inv_prim @ (cart_hessian - K) @ B_inv_prim
         return self.Bt_inv_prim.dot(cart_hessian - K).dot(self.B_inv_prim)
 
     def backtransform_hessian(self, redund_hessian, int_gradient=None):
         """Transform Hessian in internal coordinates to Cartesians."""
         self.log_int_grad_msg(int_gradient)
         K = self.get_K_matrix(int_gradient)
+        if isinstance(redund_hessian, torch.Tensor):
+            K = self._as_torch_like(K, redund_hessian)
+            B = self._as_torch_like(self.B, redund_hessian)
+            return B.T @ redund_hessian @ B + K
         return self.B.T.dot(redund_hessian).dot(self.B) + K
 
     def project_hessian(self, H, shift=1000):
         """Expects a hessian in internal coordinates. See Eq. (11) in [1]."""
         P = self.P
+        if isinstance(H, torch.Tensor):
+            P = self._as_torch_like(P, H)
+            eye = torch.eye(P.shape[0], device=H.device, dtype=H.dtype)
+            return P @ H @ P + shift * (eye - P)
         return P.dot(H).dot(P) + shift * (np.eye(P.shape[0]) - P)
 
     def project_vector(self, vector):

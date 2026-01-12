@@ -2,6 +2,7 @@ from typing import List, Optional
 import warnings
 
 import numpy as np
+import torch
 from numpy.typing import NDArray
 
 from pysisyphus.intcoords.Coords import CoordSys
@@ -81,6 +82,20 @@ class CartesianCoords(CoordSys):
     def transform_hessian(
         self, cart_hessian: NDArray, int_gradient: Optional[NDArray] = None
     ):
+        if isinstance(cart_hessian, torch.Tensor):
+            if self.mass_weighted:
+                inv_masses = torch.tensor(
+                    self.inv_masses_rep_sqrt,
+                    dtype=cart_hessian.dtype,
+                    device=cart_hessian.device,
+                )
+                M_inv = torch.diag(inv_masses)
+                cart_hessian = M_inv @ cart_hessian @ M_inv
+            mask = torch.tensor(
+                self.move_mask_rep, dtype=torch.bool, device=cart_hessian.device
+            )
+            cart_hessian = cart_hessian[mask][:, mask]
+            return cart_hessian
         if self.mass_weighted:
             M_inv = np.diag(self.inv_masses_rep_sqrt)
             cart_hessian = M_inv @ cart_hessian @ M_inv
