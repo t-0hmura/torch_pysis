@@ -626,6 +626,19 @@ class HessianOptimizer(Optimizer):
             quot = np.sum(numer / denom)
         self.log(f"quot={quot:.6f}")
         dstep2_dalpha = 2 * rfo_eigval / (1 + step_norm**2 * cur_alpha) * quot
+        if isinstance(gradient, torch.Tensor):
+            dstep2_valid = bool(
+                torch.isfinite(dstep2_dalpha)
+                & (torch.abs(dstep2_dalpha) > 1e-12)
+            )
+        else:
+            dstep2_valid = np.isfinite(dstep2_dalpha) and abs(dstep2_dalpha) > 1e-12
+        if not dstep2_valid:
+            self.log(
+                "alpha update skipped due to invalid derivative "
+                f"(dstep2_dalpha={dstep2_dalpha})"
+            )
+            return 0.0
         self.log(f"analytic deriv.={dstep2_dalpha:.6f}")
         # Update alpha
         alpha_step = (
