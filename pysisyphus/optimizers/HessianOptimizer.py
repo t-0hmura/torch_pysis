@@ -626,13 +626,32 @@ class HessianOptimizer(Optimizer):
             quot = np.sum(numer / denom)
         self.log(f"quot={quot:.6f}")
         dstep2_dalpha = 2 * rfo_eigval / (1 + step_norm**2 * cur_alpha) * quot
+        if isinstance(gradient, torch.Tensor):
+            dstep2_valid = bool(
+                torch.isfinite(dstep2_dalpha)
+                & (torch.abs(dstep2_dalpha) > 1e-12)
+            )
+        else:
+            dstep2_valid = np.isfinite(dstep2_dalpha) and abs(dstep2_dalpha) > 1e-12
+        if not dstep2_valid:
+            self.log(
+                "alpha update skipped due to invalid derivative "
+                f"(dstep2_dalpha={dstep2_dalpha})"
+            )
+            return 0.0
         self.log(f"analytic deriv.={dstep2_dalpha:.6f}")
         # Update alpha
         alpha_step = (
             2 * (self.trust_radius * step_norm - step_norm**2) / dstep2_dalpha
         )
         self.log(f"alpha_step={alpha_step:.4f}")
-        assert (cur_alpha + alpha_step) > 0, "alpha must not be negative!"
+        min_alpha = 1e-8
+        if (cur_alpha + alpha_step) <= min_alpha:
+            self.log(
+                "alpha update would make alpha non-positive; "
+                f"clamping to min_alpha={min_alpha:.1e}"
+            )
+            alpha_step = min_alpha - cur_alpha
         return alpha_step
 
     def get_rs_step(self, eigvals, eigvecs, gradient, name="RS"):
