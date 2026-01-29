@@ -440,6 +440,17 @@ class HessianOptimizer(Optimizer):
         is_torch = isinstance(rfo_mat, torch.Tensor)
 
         if is_torch:
+            if not torch.isfinite(rfo_mat).all():
+                self.log("RFO matrix contains NaN/inf; sanitizing entries.")
+                rfo_mat = torch.nan_to_num(
+                    rfo_mat, nan=0.0, posinf=1e8, neginf=-1e8
+                )
+        else:
+            if not np.isfinite(rfo_mat).all():
+                self.log("RFO matrix contains NaN/inf; sanitizing entries.")
+                rfo_mat = np.nan_to_num(rfo_mat, nan=0.0, posinf=1e8, neginf=-1e8)
+
+        if is_torch:
             is_sym = torch.allclose(rfo_mat, rfo_mat.T)
         else:
             is_sym = np.allclose(rfo_mat, rfo_mat.T)
