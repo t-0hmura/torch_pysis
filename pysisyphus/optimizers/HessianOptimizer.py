@@ -440,6 +440,17 @@ class HessianOptimizer(Optimizer):
         is_torch = isinstance(rfo_mat, torch.Tensor)
 
         if is_torch:
+            if not torch.isfinite(rfo_mat).all():
+                self.log("RFO matrix contains NaN/inf; sanitizing entries.")
+                rfo_mat = torch.nan_to_num(
+                    rfo_mat, nan=0.0, posinf=1e8, neginf=-1e8
+                )
+        else:
+            if not np.isfinite(rfo_mat).all():
+                self.log("RFO matrix contains NaN/inf; sanitizing entries.")
+                rfo_mat = np.nan_to_num(rfo_mat, nan=0.0, posinf=1e8, neginf=-1e8)
+
+        if is_torch:
             is_sym = torch.allclose(rfo_mat, rfo_mat.T)
         else:
             is_sym = np.allclose(rfo_mat, rfo_mat.T)
@@ -626,13 +637,32 @@ class HessianOptimizer(Optimizer):
             quot = np.sum(numer / denom)
         self.log(f"quot={quot:.6f}")
         dstep2_dalpha = 2 * rfo_eigval / (1 + step_norm**2 * cur_alpha) * quot
+        if isinstance(gradient, torch.Tensor):
+            dstep2_valid = bool(
+                torch.isfinite(dstep2_dalpha)
+                & (torch.abs(dstep2_dalpha) > 1e-12)
+            )
+        else:
+            dstep2_valid = np.isfinite(dstep2_dalpha) and abs(dstep2_dalpha) > 1e-12
+        if not dstep2_valid:
+            self.log(
+                "alpha update skipped due to invalid derivative "
+                f"(dstep2_dalpha={dstep2_dalpha})"
+            )
+            return 0.0
         self.log(f"analytic deriv.={dstep2_dalpha:.6f}")
         # Update alpha
         alpha_step = (
             2 * (self.trust_radius * step_norm - step_norm**2) / dstep2_dalpha
         )
         self.log(f"alpha_step={alpha_step:.4f}")
-        assert (cur_alpha + alpha_step) > 0, "alpha must not be negative!"
+        min_alpha = 1e-8
+        if (cur_alpha + alpha_step) <= min_alpha:
+            self.log(
+                "alpha update would make alpha non-positive; "
+                f"clamping to min_alpha={min_alpha:.1e}"
+            )
+            alpha_step = min_alpha - cur_alpha
         return alpha_step
 
     def get_rs_step(self, eigvals, eigvecs, gradient, name="RS"):
@@ -658,6 +688,15 @@ class HessianOptimizer(Optimizer):
             else:
                 rfo_norm_ = np.linalg.norm(rfo_step_)
             self.log(f"norm(rfo step)={rfo_norm_:.6f}")
+
+            if rfo_norm_ <= 0:
+                self.log(
+                    "RFO step length is zero; falling back to trust-region Newton step."
+                )
+                step_ = self.get_newton_step_on_trust(
+                    eigvals, eigvecs, gradient, transform=False
+                )
+                break
 
             if (rfo_norm_ < self.trust_radius) or abs(
                 rfo_norm_ - self.trust_radius
@@ -708,6 +747,24 @@ class HessianOptimizer(Optimizer):
             step = step.cpu().numpy()
         else:
             step = eigvecs.dot(step_)
+        min_step_norm = getattr(self, "min_step_norm", 0.0)
+        step_norm = np.linalg.norm(step)
+        if step_norm <= min_step_norm:
+            self.log(
+                "RFO step length below minimum threshold; "
+                "falling back to trust-region Newton step."
+            )
+            step = self.get_newton_step_on_trust(eigvals, eigvecs, gradient)
+        if not np.isfinite(step).all():
+            self.log(
+                "RFO step contains NaN/inf; falling back to trust-region Newton step."
+            )
+            step = self.get_newton_step_on_trust(eigvals, eigvecs, gradient)
+            if not np.isfinite(step).all():
+                raise ValueError(
+                    "Fallback Newton step still contains NaN/inf; "
+                    "aborting to avoid corrupting coordinates."
+                )
         return step
 
     @staticmethod
