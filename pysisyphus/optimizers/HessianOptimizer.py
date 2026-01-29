@@ -747,6 +747,14 @@ class HessianOptimizer(Optimizer):
             step = step.cpu().numpy()
         else:
             step = eigvecs.dot(step_)
+        min_step_norm = getattr(self, "min_step_norm", 0.0)
+        step_norm = np.linalg.norm(step)
+        if step_norm <= min_step_norm:
+            self.log(
+                "RFO step length below minimum threshold; "
+                "falling back to trust-region Newton step."
+            )
+            step = self.get_newton_step_on_trust(eigvals, eigvecs, gradient)
         return step
 
     @staticmethod
