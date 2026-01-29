@@ -755,6 +755,16 @@ class HessianOptimizer(Optimizer):
                 "falling back to trust-region Newton step."
             )
             step = self.get_newton_step_on_trust(eigvals, eigvecs, gradient)
+        if not np.isfinite(step).all():
+            self.log(
+                "RFO step contains NaN/inf; falling back to trust-region Newton step."
+            )
+            step = self.get_newton_step_on_trust(eigvals, eigvecs, gradient)
+            if not np.isfinite(step).all():
+                raise ValueError(
+                    "Fallback Newton step still contains NaN/inf; "
+                    "aborting to avoid corrupting coordinates."
+                )
         return step
 
     @staticmethod
