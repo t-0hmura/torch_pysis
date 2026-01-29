@@ -689,6 +689,15 @@ class HessianOptimizer(Optimizer):
                 rfo_norm_ = np.linalg.norm(rfo_step_)
             self.log(f"norm(rfo step)={rfo_norm_:.6f}")
 
+            if rfo_norm_ <= 0:
+                self.log(
+                    "RFO step length is zero; falling back to trust-region Newton step."
+                )
+                step_ = self.get_newton_step_on_trust(
+                    eigvals, eigvecs, gradient, transform=False
+                )
+                break
+
             if (rfo_norm_ < self.trust_radius) or abs(
                 rfo_norm_ - self.trust_radius
             ) <= 1e-3:
